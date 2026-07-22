@@ -23,7 +23,7 @@ function enter() {
       <div class="w-full max-w-xl">
         <div class="text-center mb-8">
           <img
-            :src="withBase('/logo-ultra-meat.svg')"
+            :src="publicAsset('/logo-ultra-meat.svg')"
             alt="Ultra Meat"
             class="mx-auto h-16 md:h-20 w-auto mb-5"
           />

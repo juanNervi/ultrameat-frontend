@@ -39,7 +39,7 @@ function resetDemo() {
       <div class="px-4 py-5 border-b border-white/10">
         <div class="rounded-lg bg-cream px-3 py-2.5">
           <img
-            :src="withBase('/logo-ultra-meat.svg')"
+            :src="publicAsset('/logo-ultra-meat.svg')"
             alt="Ultra Meat"
             class="h-9 w-auto object-contain"
           />
