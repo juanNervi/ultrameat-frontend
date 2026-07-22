@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-navy: #00438e;
+  --color-navy-deep: #002f66;
+  --color-steel: #a6aec6;
+  --color-steel-dark: #7d879e;
+  --color-cream: #f7f4ef;
+  --color-cream-dark: #ebe6dc;
+  --color-alert: #e85d04;
+  --color-alert-soft: #fff0e6;
+  --color-ok: #1a7a4c;
+  --color-ok-soft: #e8f5ee;
+  --color-warn: #c47a00;
+  --color-warn-soft: #fff8e6;
+  --color-ink: #1a1a1a;
+  --color-muted: #5c6570;
+}
+
+@layer base {
+  html {
+    font-family: 'Source Sans 3', system-ui, sans-serif;
+    color: var(--color-ink);
+    background: var(--color-cream);
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+  }
+
+  h1,
+  h2,
+  h3,
+  .font-display {
+    font-family: 'Outfit', system-ui, sans-serif;
+  }
+}
+
+@layer utilities {
+  .pattern-meat {
+    background-color: var(--color-cream);
+    background-image:
+      radial-gradient(circle at 20% 30%, rgba(143, 163, 184, 0.08) 0%, transparent 40%),
+      radial-gradient(circle at 80% 70%, rgba(27, 42, 74, 0.04) 0%, transparent 45%);
+  }
+}
