@@ -141,7 +141,7 @@ const fleetPct = computed(() =>
             </span>
             <div class="flex-1 min-w-0">
               <p class="font-semibold text-navy truncate">{{ ch.name }}</p>
-              <p class="text-xs text-muted">{{ ch.channel }}</p>
+              <p class="text-xs text-muted">Canal</p>
             </div>
             <div class="text-right shrink-0">
               <p class="font-semibold text-navy">{{ formatKg(ch.kg) }}</p>

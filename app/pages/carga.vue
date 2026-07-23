@@ -48,6 +48,15 @@ const credit = computed(() =>
 
 const estimated = computed(() => form.kg * form.pricePerKg)
 
+const clientOptions = computed(() =>
+  [...store.data.value.clients]
+    .map((c) => ({
+      ...c,
+      label: `${store.getChannel(c.channelId)?.name || 'Canal'} — ${c.name}`,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'es')),
+)
+
 const daySales = computed(() => store.salesOn(form.date))
 
 function submit() {
@@ -122,11 +131,11 @@ function confirmSale(id: string) {
             class="mt-1 w-full rounded-lg border border-cream-dark bg-cream px-3 py-2"
           >
             <option
-              v-for="c in store.data.value.clients"
+              v-for="c in clientOptions"
               :key="c.id"
               :value="c.id"
             >
-              {{ c.name }}
+              {{ c.label }}{{ c.blocked ? ' (bloqueado)' : '' }}
             </option>
           </select>
         </label>
@@ -248,7 +257,12 @@ function confirmSale(id: string) {
                 :key="s.id"
                 class="border-t border-cream-dark"
               >
-                <td class="px-3 py-2">{{ store.getClient(s.clientId)?.name }}</td>
+                <td class="px-3 py-2">
+                  <span class="block">{{ store.getClient(s.clientId)?.name }}</span>
+                  <span class="text-xs text-muted">
+                    {{ store.getChannel(store.getClient(s.clientId)?.channelId || '')?.name }}
+                  </span>
+                </td>
                 <td class="px-3 py-2">{{ store.getCut(s.cutId)?.name }}</td>
                 <td class="px-3 py-2 text-right">{{ formatNumber(s.kg, 1) }}</td>
                 <td class="px-3 py-2 text-right">

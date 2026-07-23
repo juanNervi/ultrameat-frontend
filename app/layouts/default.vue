@@ -14,7 +14,7 @@ const alertTotal = computed(() => kpis.value.alertCount + kpis.value.blockedCoun
 
 const nav = [
   { to: '/dashboard', label: 'Dashboard' },
-  { to: '/canales', label: 'Canales y crédito' },
+  { to: '/canales', label: 'Canales y clientes' },
   { to: '/carga', label: 'Carga de ventas' },
   { to: '/exportacion', label: 'Exportación contable' },
 ]

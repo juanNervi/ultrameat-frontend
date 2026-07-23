@@ -8,14 +8,22 @@ export interface Cut {
   defaultPricePerKg: number
 }
 
-export interface Client {
+/** Grupo comercial, ej. "Grupo Disco" */
+export interface Channel {
   id: string
   name: string
-  channel: string
+}
+
+/** Sucursal / cliente dentro de un canal */
+export interface Client {
+  id: string
+  channelId: string
+  name: string
   rut: string
   creditLimit: number
   creditUsed: number
   creditDays: 15 | 30 | 45
+  blocked: boolean
 }
 
 export interface Sale {
@@ -30,6 +38,7 @@ export interface Sale {
 }
 
 export interface AppData {
+  channels: Channel[]
   clients: Client[]
   cuts: Cut[]
   sales: Sale[]
@@ -50,9 +59,8 @@ export interface CutAgg {
 }
 
 export interface ChannelAgg {
-  clientId: string
+  channelId: string
   name: string
-  channel: string
   kg: number
   amount: number
 }
@@ -70,3 +78,4 @@ export interface AccountingRow {
 export const IVA_RATE = 0.22
 export const FLEET_VEHICLES = 7
 export const FLEET_CAPACITY_KG_PER_DAY = 14000
+export const CREDIT_DAYS_OPTIONS = [15, 30, 45] as const

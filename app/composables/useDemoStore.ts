@@ -1,7 +1,9 @@
 import type {
   AccountingRow,
   AppData,
+  Channel,
   ChannelAgg,
+  Client,
   CreditStatus,
   CutAgg,
   Sale,
@@ -9,7 +11,7 @@ import type {
 import { IVA_RATE } from '~/types'
 import { createSeedData } from '../data/seed'
 
-const STORAGE_KEY = 'ultrameat-demo-v1'
+const STORAGE_KEY = 'ultrameat-demo-v2'
 
 function todayIso() {
   const d = new Date()
@@ -30,12 +32,23 @@ function saleAmount(s: Sale) {
   return s.kg * s.pricePerKg
 }
 
+function newId(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 9999)}`
+}
+
+function isValidData(raw: unknown): raw is AppData {
+  if (!raw || typeof raw !== 'object') return false
+  const d = raw as AppData
+  return Array.isArray(d.channels) && Array.isArray(d.clients) && Array.isArray(d.sales)
+}
+
 function loadRaw(): AppData {
   if (import.meta.client) {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       try {
-        return JSON.parse(raw) as AppData
+        const parsed = JSON.parse(raw)
+        if (isValidData(parsed)) return parsed
       } catch {
         /* fallthrough */
       }
@@ -91,17 +104,27 @@ export function useDemoStore() {
     return data.value.cuts.find((c) => c.id === id)
   }
 
+  function getChannel(id: string) {
+    return data.value.channels.find((c) => c.id === id)
+  }
+
   function getClient(id: string) {
     return data.value.clients.find((c) => c.id === id)
+  }
+
+  function clientsByChannel(channelId: string) {
+    return data.value.clients.filter((c) => c.channelId === channelId)
   }
 
   function creditStatus(clientId: string): CreditStatus | null {
     const client = getClient(clientId)
     if (!client) return null
-    const available = Math.max(0, client.creditLimit - client.creditUsed)
+    const available = client.blocked
+      ? 0
+      : Math.max(0, client.creditLimit - client.creditUsed)
     const utilization = client.creditLimit === 0 ? 0 : client.creditUsed / client.creditLimit
     let level: CreditStatus['level'] = 'ok'
-    if (utilization >= 1) level = 'bloqueado'
+    if (client.blocked || utilization >= 1) level = 'bloqueado'
     else if (utilization >= 0.8) level = 'alerta'
     return { client, available, utilization, level }
   }
@@ -146,16 +169,17 @@ export function useDemoStore() {
     const map = new Map<string, ChannelAgg>()
     for (const s of sales) {
       const client = getClient(s.clientId)
-      const cur = map.get(s.clientId) ?? {
-        clientId: s.clientId,
-        name: client?.name ?? s.clientId,
-        channel: client?.channel ?? '',
+      const channelId = client?.channelId ?? 'sin-canal'
+      const channel = getChannel(channelId)
+      const cur = map.get(channelId) ?? {
+        channelId,
+        name: channel?.name ?? 'Sin canal',
         kg: 0,
         amount: 0,
       }
       cur.kg += s.kg
       cur.amount += saleAmount(s)
-      map.set(s.clientId, cur)
+      map.set(channelId, cur)
     }
     return [...map.values()].sort((a, b) => b.amount - a.amount)
   }
@@ -203,7 +227,9 @@ export function useDemoStore() {
     const limitTotal = credits.reduce((a, c) => a + c.client.creditLimit, 0)
     const avgCreditDays =
       credits.reduce((a, c) => a + c.client.creditDays, 0) / Math.max(1, credits.length)
-    const dso = Math.round(avgCreditDays * (exposure / Math.max(1, tMonth.amount / 30 || 1)) * 0.08 + avgCreditDays)
+    const dso = Math.round(
+      avgCreditDays * (exposure / Math.max(1, tMonth.amount / 30 || 1)) * 0.08 + avgCreditDays,
+    )
 
     const todaySales = salesOn(today)
     const pending = todaySales.filter((s) => s.status === 'pendiente').length
@@ -231,16 +257,120 @@ export function useDemoStore() {
     }
   }
 
+  function addChannel(name: string) {
+    const trimmed = name.trim()
+    if (!trimmed) return { ok: false as const, reason: 'El nombre del canal es obligatorio.' }
+    const channel: Channel = { id: newId('ch'), name: trimmed }
+    data.value = { ...data.value, channels: [...data.value.channels, channel] }
+    save()
+    return { ok: true as const, channel }
+  }
+
+  function updateChannel(id: string, name: string) {
+    const trimmed = name.trim()
+    if (!trimmed) return { ok: false as const, reason: 'El nombre del canal es obligatorio.' }
+    data.value = {
+      ...data.value,
+      channels: data.value.channels.map((c) => (c.id === id ? { ...c, name: trimmed } : c)),
+    }
+    save()
+    return { ok: true as const }
+  }
+
+  function deleteChannel(id: string) {
+    const hasClients = data.value.clients.some((c) => c.channelId === id)
+    if (hasClients) {
+      return {
+        ok: false as const,
+        reason: 'No se puede borrar: el canal todavía tiene clientes. Borrá o mové los clientes antes.',
+      }
+    }
+    data.value = {
+      ...data.value,
+      channels: data.value.channels.filter((c) => c.id !== id),
+    }
+    save()
+    return { ok: true as const }
+  }
+
+  function addClient(
+    input: Omit<Client, 'id' | 'creditUsed'> & { creditUsed?: number },
+  ) {
+    if (!input.name.trim()) return { ok: false as const, reason: 'El nombre es obligatorio.' }
+    if (!getChannel(input.channelId)) {
+      return { ok: false as const, reason: 'Canal inválido.' }
+    }
+    const client: Client = {
+      id: newId('cli'),
+      channelId: input.channelId,
+      name: input.name.trim(),
+      rut: input.rut.trim(),
+      creditLimit: Number(input.creditLimit) || 0,
+      creditUsed: Number(input.creditUsed) || 0,
+      creditDays: input.creditDays,
+      blocked: Boolean(input.blocked),
+    }
+    data.value = { ...data.value, clients: [...data.value.clients, client] }
+    save()
+    return { ok: true as const, client }
+  }
+
+  function updateClient(id: string, patch: Partial<Omit<Client, 'id'>>) {
+    const existing = getClient(id)
+    if (!existing) return { ok: false as const, reason: 'Cliente no encontrado.' }
+    if (patch.channelId && !getChannel(patch.channelId)) {
+      return { ok: false as const, reason: 'Canal inválido.' }
+    }
+    data.value = {
+      ...data.value,
+      clients: data.value.clients.map((c) => {
+        if (c.id !== id) return c
+        return {
+          ...c,
+          ...patch,
+          name: patch.name != null ? patch.name.trim() : c.name,
+          rut: patch.rut != null ? patch.rut.trim() : c.rut,
+          creditLimit:
+            patch.creditLimit != null ? Number(patch.creditLimit) : c.creditLimit,
+          creditUsed:
+            patch.creditUsed != null ? Number(patch.creditUsed) : c.creditUsed,
+          blocked: patch.blocked != null ? Boolean(patch.blocked) : c.blocked,
+        }
+      }),
+    }
+    save()
+    return { ok: true as const }
+  }
+
+  function deleteClient(id: string) {
+    const hasSales = data.value.sales.some((s) => s.clientId === id)
+    if (hasSales) {
+      return {
+        ok: false as const,
+        reason: 'No se puede borrar: el cliente tiene ventas registradas. Podés bloquearlo en su lugar.',
+      }
+    }
+    data.value = {
+      ...data.value,
+      clients: data.value.clients.filter((c) => c.id !== id),
+    }
+    save()
+    return { ok: true as const }
+  }
+
   function addSale(input: Omit<Sale, 'id'>) {
     const status = creditStatus(input.clientId)
     const amount = input.kg * input.pricePerKg
+    if (status?.client.blocked && input.status === 'confirmada') {
+      return { ok: false as const, reason: 'Cliente bloqueado: no se puede confirmar la venta.' }
+    }
     if (status && amount > status.available && input.status === 'confirmada') {
       return { ok: false as const, reason: 'Crédito insuficiente para confirmar esta venta.' }
     }
 
     const sale: Sale = {
       ...input,
-      id: `sale-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
+      id: newId('sale'),
     }
 
     data.value = {
@@ -277,6 +407,9 @@ export function useDemoStore() {
     if (status === 'confirmada') {
       const cs = creditStatus(sale.clientId)
       const amount = saleAmount(sale)
+      if (cs?.client.blocked) {
+        return { ok: false as const, reason: 'Cliente bloqueado.' }
+      }
       if (cs && amount > cs.available) {
         return { ok: false as const, reason: 'Crédito insuficiente para confirmar.' }
       }
@@ -330,7 +463,9 @@ export function useDemoStore() {
     ensureHydrated,
     resetDemo,
     getCut,
+    getChannel,
     getClient,
+    clientsByChannel,
     creditStatus,
     allCreditStatuses,
     salesOn,
@@ -340,6 +475,12 @@ export function useDemoStore() {
     aggregateByChannel,
     totals,
     dashboardKpis,
+    addChannel,
+    updateChannel,
+    deleteChannel,
+    addClient,
+    updateClient,
+    deleteClient,
     addSale,
     deleteSale,
     updateSaleStatus,
