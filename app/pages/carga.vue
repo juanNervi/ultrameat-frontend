@@ -1,11 +1,22 @@
 <script setup lang="ts">
+import { COMERCIALES } from '~/data/seed'
+
 const store = useDemoStore()
-onMounted(() => store.ensureHydrated())
+const { session, hydrate } = useSession()
+
+onMounted(() => {
+  hydrate()
+  store.ensureHydrated()
+  if (!form.comercial && session.value?.name) {
+    form.comercial = session.value.name
+  }
+})
 
 const form = reactive({
   date: store.todayIso(),
   clientId: '',
   cutId: '',
+  comercial: '',
   kg: 120,
   pricePerKg: 420,
   notes: '',
@@ -24,9 +35,13 @@ watch(
 )
 
 watch(
-  () => store.data.value.cuts,
+  () => store.activeCuts(),
   (cuts) => {
-    if (!form.cutId && cuts[0]) {
+    if (!cuts.length) {
+      form.cutId = ''
+      return
+    }
+    if (!form.cutId || !cuts.some((c) => c.id === form.cutId)) {
       form.cutId = cuts[0].id
       form.pricePerKg = cuts[0].defaultPricePerKg
     }
@@ -42,9 +57,25 @@ watch(
   },
 )
 
+watch(
+  () => session.value?.name,
+  (name) => {
+    if (name && !form.comercial) form.comercial = name
+  },
+  { immediate: true },
+)
+
 const credit = computed(() =>
   form.clientId ? store.creditStatus(form.clientId) : null,
 )
+
+const selectedCut = computed(() =>
+  form.cutId ? store.getCut(form.cutId) : null,
+)
+
+const stockAvailable = computed(() => Number(selectedCut.value?.stockKg) || 0)
+
+const stockOk = computed(() => form.kg > 0 && form.kg <= stockAvailable.value)
 
 const estimated = computed(() => form.kg * form.pricePerKg)
 
@@ -66,6 +97,10 @@ function submit() {
     error.value = 'Completá cliente, corte y kilos.'
     return
   }
+  if (!form.comercial.trim()) {
+    error.value = 'Indicá el nombre del comercial que vendió.'
+    return
+  }
 
   const result = store.addSale({
     date: form.date,
@@ -73,6 +108,7 @@ function submit() {
     cutId: form.cutId,
     kg: Number(form.kg),
     pricePerKg: Number(form.pricePerKg),
+    comercial: form.comercial.trim(),
     notes: form.notes || undefined,
     status: form.status,
   })
@@ -156,16 +192,50 @@ function confirmSale(id: string) {
         </div>
 
         <label class="block text-sm">
+          <span class="text-muted font-semibold">Comercial que vendió</span>
+          <input
+            v-model="form.comercial"
+            type="text"
+            list="comerciales-list"
+            class="mt-1 w-full rounded-lg border border-cream-dark bg-cream px-3 py-2"
+            placeholder="Nombre del comercial"
+          />
+          <datalist id="comerciales-list">
+            <option v-for="name in COMERCIALES" :key="name" :value="name" />
+          </datalist>
+        </label>
+
+        <label class="block text-sm">
           <span class="text-muted font-semibold">Corte</span>
           <select
             v-model="form.cutId"
             class="mt-1 w-full rounded-lg border border-cream-dark bg-cream px-3 py-2"
           >
-            <option v-for="c in store.data.value.cuts" :key="c.id" :value="c.id">
-              {{ c.name }}
+            <option v-for="c in store.activeCuts()" :key="c.id" :value="c.id">
+              {{ c.name }} ({{ formatNumber(c.stockKg || 0, 1) }} kg)
             </option>
           </select>
         </label>
+
+        <div
+          v-if="selectedCut"
+          class="rounded-lg border px-3 py-2 text-sm"
+          :class="
+            stockOk
+              ? 'border-ok/30 bg-ok-soft'
+              : 'border-alert/40 bg-alert-soft'
+          "
+        >
+          <div class="flex justify-between gap-2">
+            <span class="font-semibold" :class="stockOk ? 'text-ok' : 'text-alert'">
+              Stock disponible
+            </span>
+            <span>{{ formatKg(stockAvailable) }}</span>
+          </div>
+          <p v-if="!stockOk" class="text-xs text-alert mt-1">
+            No hay stock suficiente para esta venta.
+          </p>
+        </div>
 
         <div class="grid grid-cols-2 gap-3">
           <label class="block text-sm">
@@ -219,8 +289,11 @@ function confirmSale(id: string) {
 
         <button
           type="submit"
-          class="w-full rounded-xl bg-navy text-white font-semibold py-2.5 hover:bg-navy-deep transition"
-          :disabled="credit?.level === 'bloqueado' && form.status === 'confirmada'"
+          class="w-full rounded-xl bg-navy text-white font-semibold py-2.5 hover:bg-navy-deep transition disabled:opacity-50 disabled:cursor-not-allowed"
+          :disabled="
+            (credit?.level === 'bloqueado' && form.status === 'confirmada') ||
+            !stockOk
+          "
         >
           Guardar venta
         </button>
@@ -244,6 +317,7 @@ function confirmSale(id: string) {
             <thead class="bg-cream text-left text-muted sticky top-0">
               <tr>
                 <th class="px-3 py-2">Cliente</th>
+                <th class="px-3 py-2">Comercial</th>
                 <th class="px-3 py-2">Corte</th>
                 <th class="px-3 py-2 text-right">Kg</th>
                 <th class="px-3 py-2 text-right">Total</th>
@@ -263,6 +337,7 @@ function confirmSale(id: string) {
                     {{ store.getChannel(store.getClient(s.clientId)?.channelId || '')?.name }}
                   </span>
                 </td>
+                <td class="px-3 py-2">{{ s.comercial || '—' }}</td>
                 <td class="px-3 py-2">{{ store.getCut(s.cutId)?.name }}</td>
                 <td class="px-3 py-2 text-right">{{ formatNumber(s.kg, 1) }}</td>
                 <td class="px-3 py-2 text-right">
@@ -280,26 +355,32 @@ function confirmSale(id: string) {
                     {{ s.status }}
                   </span>
                 </td>
-                <td class="px-3 py-2 text-right space-x-2 whitespace-nowrap">
-                  <button
-                    v-if="s.status === 'pendiente'"
-                    type="button"
-                    class="text-xs text-navy underline"
-                    @click="confirmSale(s.id)"
-                  >
-                    Confirmar
-                  </button>
-                  <button
-                    type="button"
-                    class="text-xs text-alert underline"
-                    @click="removeSale(s.id)"
-                  >
-                    Borrar
-                  </button>
+                <td class="px-3 py-2 text-right whitespace-nowrap">
+                  <div class="inline-flex items-center gap-0.5 justify-end">
+                    <ActionIcon
+                      v-if="s.status === 'pendiente'"
+                      label="Confirmar venta"
+                      tone="ok"
+                      @click="confirmSale(s.id)"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    </ActionIcon>
+                    <ActionIcon
+                      label="Borrar venta"
+                      tone="alert"
+                      @click="removeSale(s.id)"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                      </svg>
+                    </ActionIcon>
+                  </div>
                 </td>
               </tr>
               <tr v-if="!daySales.length">
-                <td colspan="6" class="px-3 py-8 text-center text-muted">
+                <td colspan="7" class="px-3 py-8 text-center text-muted">
                   Sin ventas para esta fecha.
                 </td>
               </tr>

@@ -1,14 +1,14 @@
 import type { AppData, Channel, Client, Cut, Sale } from '~/types'
 
 export const CUTS: Cut[] = [
-  { id: 'asado', name: 'Asado', defaultPricePerKg: 420 },
-  { id: 'pulpon', name: 'Pulpón', defaultPricePerKg: 380 },
-  { id: 'vacio', name: 'Vacío', defaultPricePerKg: 450 },
-  { id: 'tapa-asado', name: 'Tapa de asado', defaultPricePerKg: 390 },
-  { id: 'nalga', name: 'Nalga', defaultPricePerKg: 410 },
-  { id: 'bife-angosto', name: 'Bife angosto', defaultPricePerKg: 520 },
-  { id: 'cuadril', name: 'Cuadril', defaultPricePerKg: 400 },
-  { id: 'entraña', name: 'Entraña', defaultPricePerKg: 560 },
+  { id: 'asado', name: 'Asado', defaultPricePerKg: 420, active: true, stockKg: 2400, costPerKg: 310 },
+  { id: 'pulpon', name: 'Pulpón', defaultPricePerKg: 380, active: true, stockKg: 1800, costPerKg: 275 },
+  { id: 'vacio', name: 'Vacío', defaultPricePerKg: 450, active: true, stockKg: 950, costPerKg: 340 },
+  { id: 'tapa-asado', name: 'Tapa de asado', defaultPricePerKg: 390, active: true, stockKg: 720, costPerKg: 290 },
+  { id: 'nalga', name: 'Nalga', defaultPricePerKg: 410, active: true, stockKg: 1600, costPerKg: 300 },
+  { id: 'bife-angosto', name: 'Bife angosto', defaultPricePerKg: 520, active: true, stockKg: 480, costPerKg: 400 },
+  { id: 'cuadril', name: 'Cuadril', defaultPricePerKg: 400, active: true, stockKg: 1100, costPerKg: 295 },
+  { id: 'entraña', name: 'Entraña', defaultPricePerKg: 560, active: true, stockKg: 320, costPerKg: 430 },
 ]
 
 export const CHANNELS: Channel[] = [
@@ -144,6 +144,17 @@ export const CLIENTS: Client[] = [
   },
 ]
 
+export const COMERCIALES = ['Martín', 'Diego', 'Ana', 'María'] as const
+
+export function pickComercial(seed: string) {
+  let h = 2166136261
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return COMERCIALES[(h >>> 0) % COMERCIALES.length]
+}
+
 function pad(n: number) {
   return String(n).padStart(2, '0')
 }
@@ -192,14 +203,16 @@ export function buildSeedSales(): Sale[] {
       const priceJitter = 0.92 + rand() * 0.16
       const pricePerKg = Math.round(cut.defaultPricePerKg * priceJitter)
       const isPending = day === 0 && rand() > 0.7
+      const saleId = `sale-${id++}`
 
       sales.push({
-        id: `sale-${id++}`,
+        id: saleId,
         date,
         clientId: client.id,
         cutId: cut.id,
         kg,
         pricePerKg,
+        comercial: pickComercial(saleId),
         notes: isPending ? 'Pendiente de despacho' : undefined,
         status: isPending ? 'pendiente' : 'confirmada',
       })
@@ -215,5 +228,6 @@ export function createSeedData(): AppData {
     clients: CLIENTS.map((c) => ({ ...c })),
     cuts: CUTS.map((c) => ({ ...c })),
     sales: buildSeedSales(),
+    stockEntries: [],
   }
 }

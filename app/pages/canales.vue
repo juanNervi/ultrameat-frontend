@@ -6,6 +6,7 @@ const store = useDemoStore()
 onMounted(() => store.ensureHydrated())
 
 const filter = ref<'todos' | 'alerta' | 'bloqueado'>('todos')
+/** false = cerrado; ausente/true = abierto (por defecto desplegado) */
 const expanded = ref<Record<string, boolean>>({})
 const message = ref('')
 const error = ref('')
@@ -29,6 +30,10 @@ const clientForm = reactive({
 const channels = computed(() =>
   [...store.data.value.channels].sort((a, b) => a.name.localeCompare(b.name, 'es')),
 )
+
+function isExpanded(id: string) {
+  return expanded.value[id] !== false
+}
 
 function flash(ok: string | null, err: string | null = null) {
   message.value = ok || ''
@@ -64,7 +69,7 @@ const filteredChannels = computed(() =>
 )
 
 function toggle(id: string) {
-  expanded.value[id] = !expanded.value[id]
+  expanded.value[id] = !isExpanded(id)
 }
 
 function createChannel() {
@@ -115,6 +120,12 @@ function openNewClient(channelId: string) {
   clientForm.blocked = false
   clientFormOpen.value = true
   expanded.value[channelId] = true
+  nextTick(() => {
+    document.getElementById(`client-form-${channelId}`)?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'nearest',
+    })
+  })
 }
 
 function openEditClient(client: Client) {
@@ -128,6 +139,12 @@ function openEditClient(client: Client) {
   clientForm.blocked = client.blocked
   clientFormOpen.value = true
   expanded.value[client.channelId] = true
+  nextTick(() => {
+    document.getElementById(`client-form-${client.channelId}`)?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'nearest',
+    })
+  })
 }
 
 function saveClient() {
@@ -219,96 +236,7 @@ function toggleBlocked(client: Client) {
       </button>
     </div>
 
-    <!-- Client form modal -->
-    <div
-      v-if="clientFormOpen"
-      class="rounded-2xl border border-navy/20 bg-white p-4 shadow-sm space-y-3"
-    >
-      <h2 class="font-display font-semibold text-navy">
-        {{ editingClientId ? 'Editar cliente' : 'Nuevo cliente' }}
-      </h2>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <label class="text-sm sm:col-span-2">
-          <span class="text-muted font-semibold">Canal</span>
-          <select
-            v-model="clientForm.channelId"
-            class="mt-1 w-full rounded-lg border border-cream-dark bg-cream px-3 py-2"
-          >
-            <option v-for="ch in channels" :key="ch.id" :value="ch.id">
-              {{ ch.name }}
-            </option>
-          </select>
-        </label>
-        <label class="text-sm">
-          <span class="text-muted font-semibold">Nombre</span>
-          <input
-            v-model="clientForm.name"
-            type="text"
-            class="mt-1 w-full rounded-lg border border-cream-dark bg-cream px-3 py-2"
-            placeholder="Disco Sucursal Malvín"
-          />
-        </label>
-        <label class="text-sm">
-          <span class="text-muted font-semibold">RUT</span>
-          <input
-            v-model="clientForm.rut"
-            type="text"
-            class="mt-1 w-full rounded-lg border border-cream-dark bg-cream px-3 py-2"
-          />
-        </label>
-        <label class="text-sm">
-          <span class="text-muted font-semibold">Límite de crédito</span>
-          <input
-            v-model.number="clientForm.creditLimit"
-            type="number"
-            min="0"
-            step="1000"
-            class="mt-1 w-full rounded-lg border border-cream-dark bg-cream px-3 py-2"
-          />
-        </label>
-        <label class="text-sm">
-          <span class="text-muted font-semibold">Crédito usado</span>
-          <input
-            v-model.number="clientForm.creditUsed"
-            type="number"
-            min="0"
-            step="1000"
-            class="mt-1 w-full rounded-lg border border-cream-dark bg-cream px-3 py-2"
-          />
-        </label>
-        <label class="text-sm">
-          <span class="text-muted font-semibold">Plazo (días)</span>
-          <select
-            v-model.number="clientForm.creditDays"
-            class="mt-1 w-full rounded-lg border border-cream-dark bg-cream px-3 py-2"
-          >
-            <option v-for="d in CREDIT_DAYS_OPTIONS" :key="d" :value="d">
-              {{ d }} días
-            </option>
-          </select>
-        </label>
-        <label class="text-sm flex items-end gap-2 pb-2">
-          <input v-model="clientForm.blocked" type="checkbox" class="rounded" />
-          <span class="font-semibold text-navy">Bloqueado (no vender)</span>
-        </label>
-      </div>
-      <div class="flex gap-2">
-        <button
-          type="button"
-          class="rounded-xl bg-navy text-white font-semibold px-4 py-2"
-          @click="saveClient"
-        >
-          Guardar
-        </button>
-        <button
-          type="button"
-          class="rounded-xl border border-cream-dark px-4 py-2 text-muted"
-          @click="clientFormOpen = false"
-        >
-          Cancelar
-        </button>
-      </div>
-    </div>
+    <!-- formulario de cliente se muestra dentro de cada canal -->
 
     <div class="space-y-3">
       <div
@@ -323,7 +251,7 @@ function toggleBlocked(client: Client) {
             @click="toggle(ch.id)"
           >
             <div class="flex items-center gap-2">
-              <span class="text-muted text-xs w-4">{{ expanded[ch.id] ? '▼' : '▶' }}</span>
+              <span class="text-muted text-xs w-4">{{ isExpanded(ch.id) ? '▼' : '▶' }}</span>
               <template v-if="editingChannelId === ch.id">
                 <input
                   v-model="editingChannelName"
@@ -352,46 +280,122 @@ function toggleBlocked(client: Client) {
             </p>
           </button>
 
-          <div class="flex flex-wrap gap-2 sm:justify-end">
+          <div class="flex items-center gap-1 sm:justify-end shrink-0">
             <template v-if="editingChannelId === ch.id">
-              <button type="button" class="text-xs font-semibold text-ok underline" @click="saveChannel">
-                Guardar
-              </button>
-              <button
-                type="button"
-                class="text-xs text-muted underline"
-                @click="editingChannelId = null"
-              >
-                Cancelar
-              </button>
+              <ActionIcon label="Guardar" tone="ok" @click="saveChannel">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </ActionIcon>
+              <ActionIcon label="Cancelar" tone="muted" @click="editingChannelId = null">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </ActionIcon>
             </template>
             <template v-else>
-              <button
-                type="button"
-                class="text-xs font-semibold text-navy underline"
-                @click="startEditChannel(ch.id, ch.name)"
-              >
-                Renombrar
-              </button>
-              <button
-                type="button"
-                class="text-xs font-semibold text-navy underline"
-                @click="openNewClient(ch.id)"
-              >
-                + Cliente
-              </button>
-              <button
-                type="button"
-                class="text-xs text-alert underline"
-                @click="removeChannel(ch.id, ch.name)"
-              >
-                Borrar canal
-              </button>
+              <ActionIcon label="Renombrar canal" @click="startEditChannel(ch.id, ch.name)">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 7.125L16.875 4.5" />
+                </svg>
+              </ActionIcon>
+              <ActionIcon label="Agregar cliente" @click="openNewClient(ch.id)">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+              </ActionIcon>
+              <ActionIcon label="Borrar canal" tone="alert" @click="removeChannel(ch.id, ch.name)">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                </svg>
+              </ActionIcon>
             </template>
           </div>
         </div>
 
-        <div v-if="expanded[ch.id]" class="overflow-x-auto border-t border-cream-dark">
+        <div v-if="isExpanded(ch.id)" class="border-t border-cream-dark">
+          <div
+            v-if="clientFormOpen && clientForm.channelId === ch.id"
+            :id="`client-form-${ch.id}`"
+            class="m-3 rounded-xl border border-navy/25 bg-cream/50 p-4 space-y-3"
+          >
+            <h2 class="font-display font-semibold text-navy">
+              {{ editingClientId ? 'Editar cliente' : 'Nuevo cliente' }}
+            </h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label class="text-sm sm:col-span-2">
+                <span class="text-muted font-semibold">Nombre</span>
+                <input
+                  v-model="clientForm.name"
+                  type="text"
+                  class="mt-1 w-full rounded-lg border border-cream-dark bg-white px-3 py-2"
+                  placeholder="Disco Sucursal Malvín"
+                />
+              </label>
+              <label class="text-sm">
+                <span class="text-muted font-semibold">RUT</span>
+                <input
+                  v-model="clientForm.rut"
+                  type="text"
+                  class="mt-1 w-full rounded-lg border border-cream-dark bg-white px-3 py-2"
+                />
+              </label>
+              <label class="text-sm">
+                <span class="text-muted font-semibold">Plazo (días)</span>
+                <select
+                  v-model.number="clientForm.creditDays"
+                  class="mt-1 w-full rounded-lg border border-cream-dark bg-white px-3 py-2"
+                >
+                  <option v-for="d in CREDIT_DAYS_OPTIONS" :key="d" :value="d">
+                    {{ d }} días
+                  </option>
+                </select>
+              </label>
+              <label class="text-sm">
+                <span class="text-muted font-semibold">Límite de crédito</span>
+                <input
+                  v-model.number="clientForm.creditLimit"
+                  type="number"
+                  min="0"
+                  step="1000"
+                  class="mt-1 w-full rounded-lg border border-cream-dark bg-white px-3 py-2"
+                />
+              </label>
+              <label class="text-sm">
+                <span class="text-muted font-semibold">Crédito usado</span>
+                <input
+                  v-model.number="clientForm.creditUsed"
+                  type="number"
+                  min="0"
+                  step="1000"
+                  class="mt-1 w-full rounded-lg border border-cream-dark bg-white px-3 py-2"
+                />
+              </label>
+              <label class="text-sm flex items-center gap-2 sm:col-span-2">
+                <input v-model="clientForm.blocked" type="checkbox" class="rounded" />
+                <span class="font-semibold text-navy">Bloqueado (no vender)</span>
+              </label>
+            </div>
+            <div class="flex gap-2">
+              <button
+                type="button"
+                class="rounded-xl bg-navy text-white font-semibold px-4 py-2"
+                @click="saveClient"
+              >
+                Guardar
+              </button>
+              <button
+                type="button"
+                class="rounded-xl border border-cream-dark px-4 py-2 text-muted bg-white"
+                @click="clientFormOpen = false"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead class="bg-cream text-left text-muted">
               <tr>
@@ -422,32 +426,53 @@ function toggleBlocked(client: Client) {
                 <td class="px-4 py-2">
                   <CreditBadge :level="store.creditStatus(client.id)?.level || 'ok'" compact />
                 </td>
-                <td class="px-4 py-2 text-right whitespace-nowrap space-x-2">
-                  <button
-                    type="button"
-                    class="text-xs text-navy underline"
-                    @click="openEditClient(client)"
-                  >
-                    Editar
-                  </button>
-                  <button
-                    type="button"
-                    class="text-xs underline"
-                    :class="client.blocked ? 'text-ok' : 'text-alert'"
-                    @click="toggleBlocked(client)"
-                  >
-                    {{ client.blocked ? 'Desbloquear' : 'Bloquear' }}
-                  </button>
-                  <button
-                    type="button"
-                    class="text-xs text-alert underline"
-                    @click="removeClient(client.id, client.name)"
-                  >
-                    Borrar
-                  </button>
+                <td class="px-4 py-2 text-right whitespace-nowrap">
+                  <div class="inline-flex items-center gap-0.5">
+                    <ActionIcon label="Editar cliente" @click="openEditClient(client)">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 7.125L16.875 4.5" />
+                      </svg>
+                    </ActionIcon>
+                    <ActionIcon
+                      :label="client.blocked ? 'Desbloquear cliente' : 'Bloquear cliente'"
+                      :tone="client.blocked ? 'ok' : 'alert'"
+                      @click="toggleBlocked(client)"
+                    >
+                      <svg
+                        v-if="client.blocked"
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        class="h-4 w-4"
+                        aria-hidden="true"
+                      >
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                      </svg>
+                      <svg
+                        v-else
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        class="h-4 w-4"
+                        aria-hidden="true"
+                      >
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                      </svg>
+                    </ActionIcon>
+                    <ActionIcon label="Borrar cliente" tone="alert" @click="removeClient(client.id, client.name)">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                      </svg>
+                    </ActionIcon>
+                  </div>
                 </td>
               </tr>
-              <tr v-if="!visibleClients(ch.id).length">
+              <tr v-if="!visibleClients(ch.id).length && !(clientFormOpen && clientForm.channelId === ch.id)">
                 <td colspan="8" class="px-4 py-6 text-center text-muted">
                   Sin clientes
                   {{ filter === 'todos' ? 'en este canal' : 'con este filtro' }}.
@@ -463,6 +488,7 @@ function toggleBlocked(client: Client) {
               </tr>
             </tbody>
           </table>
+          </div>
         </div>
       </div>
 

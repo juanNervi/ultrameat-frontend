@@ -6,6 +6,22 @@ export interface Cut {
   id: string
   name: string
   defaultPricePerKg: number
+  /** Si está inactivo no aparece en el dropdown de carga */
+  active: boolean
+  /** Stock disponible en kg */
+  stockKg: number
+  /** Costo promedio de compra por kg (UYU) */
+  costPerKg: number
+}
+
+/** Entrada de mercadería (compra) */
+export interface StockEntry {
+  id: string
+  cutId: string
+  date: string
+  kg: number
+  costPerKg: number
+  notes?: string
 }
 
 /** Grupo comercial, ej. "Grupo Disco" */
@@ -33,6 +49,8 @@ export interface Sale {
   cutId: string
   kg: number
   pricePerKg: number
+  /** Nombre del comercial que realizó la venta */
+  comercial: string
   notes?: string
   status: 'confirmada' | 'pendiente'
 }
@@ -42,6 +60,7 @@ export interface AppData {
   clients: Client[]
   cuts: Cut[]
   sales: Sale[]
+  stockEntries: StockEntry[]
 }
 
 export interface CreditStatus {

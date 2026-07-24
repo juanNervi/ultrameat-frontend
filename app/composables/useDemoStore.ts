@@ -5,12 +5,12 @@ import type {
   ChannelAgg,
   Client,
   CreditStatus,
+  Cut,
   CutAgg,
   Sale,
 } from '~/types'
 import { IVA_RATE } from '~/types'
-import { createSeedData } from '../data/seed'
-
+import { createSeedData, pickComercial, CUTS as SEED_CUTS } from '../data/seed'
 const STORAGE_KEY = 'ultrameat-demo-v2'
 
 function todayIso() {
@@ -42,13 +42,41 @@ function isValidData(raw: unknown): raw is AppData {
   return Array.isArray(d.channels) && Array.isArray(d.clients) && Array.isArray(d.sales)
 }
 
+function normalizeData(raw: AppData): AppData {
+  return {
+    ...raw,
+    stockEntries: Array.isArray(raw.stockEntries) ? raw.stockEntries : [],
+    cuts: (raw.cuts || []).map((c) => {
+      const seed = SEED_CUTS.find((s) => s.id === c.id)
+      return {
+        ...c,
+        active: c.active !== false,
+        defaultPricePerKg: Number(c.defaultPricePerKg) || 0,
+        stockKg:
+          typeof c.stockKg === 'number' ? Number(c.stockKg) : (seed?.stockKg ?? 0),
+        costPerKg:
+          typeof c.costPerKg === 'number' ? Number(c.costPerKg) : (seed?.costPerKg ?? 0),
+      }
+    }),
+    sales: raw.sales.map((s) => {
+      const current = s.comercial?.trim()
+      const missing =
+        !current || current === 'Sin asignar' || current === '—'
+      return {
+        ...s,
+        comercial: missing ? pickComercial(s.id) : current,
+      }
+    }),
+  }
+}
+
 function loadRaw(): AppData {
   if (import.meta.client) {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       try {
         const parsed = JSON.parse(raw)
-        if (isValidData(parsed)) return parsed
+        if (isValidData(parsed)) return normalizeData(parsed)
       } catch {
         /* fallthrough */
       }
@@ -86,9 +114,27 @@ export function useDemoStore() {
   const hydrated = useState('demo-hydrated', () => false)
 
   function ensureHydrated() {
-    if (!import.meta.client || hydrated.value) return
-    data.value = syncCreditUsed(loadRaw())
-    hydrated.value = true
+    if (!import.meta.client) return
+    if (!hydrated.value) {
+      data.value = syncCreditUsed(loadRaw())
+      hydrated.value = true
+    }
+
+    const needsComercial = data.value.sales.some((s) => {
+      const c = s.comercial?.trim()
+      return !c || c === 'Sin asignar' || c === '—'
+    })
+    const needsCutMeta = data.value.cuts.some(
+      (c) =>
+        typeof c.active !== 'boolean' ||
+        typeof c.stockKg !== 'number' ||
+        typeof c.costPerKg !== 'number',
+    )
+    const needsEntries = !Array.isArray(data.value.stockEntries)
+    if (needsComercial || needsCutMeta || needsEntries) {
+      data.value = syncCreditUsed(normalizeData(data.value))
+      save()
+    }
   }
 
   function save() {
@@ -361,6 +407,17 @@ export function useDemoStore() {
   function addSale(input: Omit<Sale, 'id'>) {
     const status = creditStatus(input.clientId)
     const amount = input.kg * input.pricePerKg
+    const cut = getCut(input.cutId)
+    if (!cut) {
+      return { ok: false as const, reason: 'Producto no encontrado.' }
+    }
+    const availableStock = Number(cut.stockKg) || 0
+    if (input.kg > availableStock) {
+      return {
+        ok: false as const,
+        reason: `Stock insuficiente de ${cut.name}: hay ${availableStock.toFixed(1)} kg, pedís ${input.kg} kg.`,
+      }
+    }
     if (status?.client.blocked && input.status === 'confirmada') {
       return { ok: false as const, reason: 'Cliente bloqueado: no se puede confirmar la venta.' }
     }
@@ -376,6 +433,10 @@ export function useDemoStore() {
     data.value = {
       ...data.value,
       sales: [sale, ...data.value.sales],
+      cuts: data.value.cuts.map((c) => {
+        if (c.id !== input.cutId) return c
+        return { ...c, stockKg: Math.max(0, (Number(c.stockKg) || 0) - input.kg) }
+      }),
       clients: data.value.clients.map((c) => {
         if (c.id !== input.clientId || input.status !== 'confirmada') return c
         return { ...c, creditUsed: Math.min(c.creditLimit, c.creditUsed + amount) }
@@ -392,6 +453,10 @@ export function useDemoStore() {
     data.value = {
       ...data.value,
       sales: data.value.sales.filter((s) => s.id !== id),
+      cuts: data.value.cuts.map((c) => {
+        if (c.id !== sale.cutId) return c
+        return { ...c, stockKg: (Number(c.stockKg) || 0) + sale.kg }
+      }),
       clients: data.value.clients.map((c) => {
         if (c.id !== sale.clientId || sale.status !== 'confirmada') return c
         return { ...c, creditUsed: Math.max(0, c.creditUsed - amount) }
@@ -458,6 +523,142 @@ export function useDemoStore() {
     return [...map.values()].sort((a, b) => b.total - a.total)
   }
 
+  function addCut(input: {
+    name: string
+    defaultPricePerKg: number
+    active?: boolean
+    stockKg?: number
+    costPerKg?: number
+  }) {
+    const name = input.name.trim()
+    if (!name) return { ok: false as const, reason: 'El nombre del producto es obligatorio.' }
+    const cut = {
+      id: newId('prod'),
+      name,
+      defaultPricePerKg: Number(input.defaultPricePerKg) || 0,
+      active: input.active !== false,
+      stockKg: Number(input.stockKg) || 0,
+      costPerKg: Number(input.costPerKg) || 0,
+    }
+    data.value = { ...data.value, cuts: [...data.value.cuts, cut] }
+    save()
+    return { ok: true as const, cut }
+  }
+
+  function updateCut(
+    id: string,
+    patch: Partial<Pick<Cut, 'name' | 'defaultPricePerKg' | 'active' | 'stockKg' | 'costPerKg'>>,
+  ) {
+    const existing = getCut(id)
+    if (!existing) return { ok: false as const, reason: 'Producto no encontrado.' }
+    if (patch.name != null && !patch.name.trim()) {
+      return { ok: false as const, reason: 'El nombre del producto es obligatorio.' }
+    }
+    data.value = {
+      ...data.value,
+      cuts: data.value.cuts.map((c) => {
+        if (c.id !== id) return c
+        return {
+          ...c,
+          name: patch.name != null ? patch.name.trim() : c.name,
+          defaultPricePerKg:
+            patch.defaultPricePerKg != null
+              ? Number(patch.defaultPricePerKg)
+              : c.defaultPricePerKg,
+          active: patch.active != null ? Boolean(patch.active) : c.active,
+          stockKg: patch.stockKg != null ? Number(patch.stockKg) : c.stockKg,
+          costPerKg: patch.costPerKg != null ? Number(patch.costPerKg) : c.costPerKg,
+        }
+      }),
+    }
+    save()
+    return { ok: true as const }
+  }
+
+  function deleteCut(id: string) {
+    const used = data.value.sales.some((s) => s.cutId === id)
+    if (used) {
+      return {
+        ok: false as const,
+        reason:
+          'No se puede borrar: el producto tiene ventas. Desactivalo para que no aparezca en la carga.',
+      }
+    }
+    data.value = {
+      ...data.value,
+      cuts: data.value.cuts.filter((c) => c.id !== id),
+      stockEntries: (data.value.stockEntries || []).filter((e) => e.cutId !== id),
+    }
+    save()
+    return { ok: true as const }
+  }
+
+  function activeCuts() {
+    return data.value.cuts
+      .filter((c) => c.active !== false)
+      .sort((a, b) => a.name.localeCompare(b.name, 'es'))
+  }
+
+  /** Registra compra / entrada de mercadería y actualiza stock + costo promedio */
+  function addStock(input: {
+    cutId: string
+    kg: number
+    costPerKg: number
+    date?: string
+    notes?: string
+  }) {
+    const cut = getCut(input.cutId)
+    if (!cut) return { ok: false as const, reason: 'Producto no encontrado.' }
+    const kg = Number(input.kg)
+    const costPerKg = Number(input.costPerKg)
+    if (!(kg > 0)) return { ok: false as const, reason: 'Los kilos deben ser mayores a 0.' }
+    if (!(costPerKg >= 0)) return { ok: false as const, reason: 'El costo por kg no es válido.' }
+
+    const prevKg = Number(cut.stockKg) || 0
+    const prevCost = Number(cut.costPerKg) || 0
+    const nextKg = prevKg + kg
+    const nextCost =
+      nextKg > 0 ? (prevKg * prevCost + kg * costPerKg) / nextKg : costPerKg
+
+    const entry = {
+      id: newId('stk'),
+      cutId: input.cutId,
+      date: input.date || todayIso(),
+      kg,
+      costPerKg,
+      notes: input.notes?.trim() || undefined,
+    }
+
+    data.value = {
+      ...data.value,
+      stockEntries: [entry, ...(data.value.stockEntries || [])],
+      cuts: data.value.cuts.map((c) => {
+        if (c.id !== input.cutId) return c
+        return {
+          ...c,
+          stockKg: Math.round(nextKg * 10) / 10,
+          costPerKg: Math.round(nextCost * 100) / 100,
+        }
+      }),
+    }
+    save()
+    return { ok: true as const, entry }
+  }
+
+  function stockSummary() {
+    const rows = data.value.cuts.map((c) => ({
+      cut: c,
+      stockKg: Number(c.stockKg) || 0,
+      costPerKg: Number(c.costPerKg) || 0,
+      stockValue: (Number(c.stockKg) || 0) * (Number(c.costPerKg) || 0),
+      low: (Number(c.stockKg) || 0) < 200,
+    }))
+    const totalKg = rows.reduce((a, r) => a + r.stockKg, 0)
+    const totalValue = rows.reduce((a, r) => a + r.stockValue, 0)
+    const lowCount = rows.filter((r) => r.low && r.cut.active !== false).length
+    return { rows, totalKg, totalValue, lowCount }
+  }
+
   return {
     data,
     ensureHydrated,
@@ -481,6 +682,12 @@ export function useDemoStore() {
     addClient,
     updateClient,
     deleteClient,
+    addCut,
+    updateCut,
+    deleteCut,
+    activeCuts,
+    addStock,
+    stockSummary,
     addSale,
     deleteSale,
     updateSaleStatus,

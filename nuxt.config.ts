@@ -38,7 +38,7 @@ export default defineNuxtConfig({
   nitro: {
     preset: 'github-pages',
     prerender: {
-      routes: ['/', '/dashboard', '/canales', '/carga', '/exportacion'],
+      routes: ['/', '/dashboard', '/canales', '/productos', '/stock', '/carga', '/exportacion'],
       crawlLinks: true,
     },
   },
